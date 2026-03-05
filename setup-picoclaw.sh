@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Interactive PicoClaw installer with provider onboarding
+# Interactive PicoClaw installer with provider + Telegram onboarding
 
 PICOCLAW_VERSION="v0.2.0"
 PICOCLAW_HOME="${PICOCLAW_HOME:-$HOME/.picoclaw}"
@@ -32,9 +32,18 @@ ask_secret() {
     echo ""
 }
 
+ask_yn() {
+    local prompt="$1" default="${2:-y}"
+    ask "$prompt (y/n)" "$default"
+    case "$REPLY" in
+        [yY]*) return 0 ;;
+        *)     return 1 ;;
+    esac
+}
+
 # ── Provider onboarding ────────────────────────────────────────────
 
-onboard() {
+onboard_provider() {
     echo ""
     echo "  ╔══════════════════════════════════════════╗"
     echo "  ║   PicoClaw Setup                         ║"
@@ -61,7 +70,6 @@ onboard_ollama() {
     info "Ollama setup"
     echo ""
 
-    # Check ollama is running
     if ! curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
         warn "Ollama doesn't seem to be running on localhost:11434"
         ask "Ollama API base URL" "http://localhost:11434"
@@ -71,7 +79,6 @@ onboard_ollama() {
         PROVIDER_API_BASE="http://localhost:11434/v1"
     fi
 
-    # List available models if ollama is reachable
     if command -v ollama >/dev/null 2>&1; then
         echo ""
         info "Available models:"
@@ -82,7 +89,6 @@ onboard_ollama() {
     ask "Model name (as shown in ollama list)" "qwen3:0.6b"
     local ollama_model="$REPLY"
 
-    # Derive a short name for PicoClaw config
     PROVIDER_MODEL_NAME="$(echo "$ollama_model" | tr ':/' '-')"
     PROVIDER_MODEL="ollama/${ollama_model}"
     PROVIDER_API_KEY=""
@@ -121,7 +127,6 @@ onboard_openrouter() {
     PROVIDER_TIMEOUT=120
     PROVIDER_MAX_TOKENS=4096
 
-    # Verify key works
     info "Verifying API key..."
     local status
     status=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -134,10 +139,76 @@ onboard_openrouter() {
     fi
 }
 
+# ── Telegram onboarding ────────────────────────────────────────────
+
+TELEGRAM_ENABLED="false"
+TELEGRAM_TOKEN=""
+TELEGRAM_ALLOW_FROM="[]"
+
+onboard_telegram() {
+    echo ""
+    echo "  ── Telegram Bot ──────────────────────────"
+    echo ""
+
+    if ! ask_yn "  Enable Telegram bot?" "n"; then
+        info "Telegram disabled"
+        return
+    fi
+
+    TELEGRAM_ENABLED="true"
+
+    echo ""
+    info "Create a bot via @BotFather on Telegram to get your token."
+    echo "  1. Open @BotFather in Telegram"
+    echo "  2. Send /newbot and follow the prompts"
+    echo "  3. Copy the token it gives you"
+    echo ""
+
+    ask_secret "Bot token (123456:ABC...)"
+    TELEGRAM_TOKEN="$REPLY"
+    [ -z "$TELEGRAM_TOKEN" ] && die "Bot token is required"
+
+    # Verify token
+    info "Verifying bot token..."
+    local bot_info
+    bot_info=$(curl -sf "https://api.telegram.org/bot${TELEGRAM_TOKEN}/getMe" 2>/dev/null || echo "")
+    if echo "$bot_info" | grep -q '"ok":true'; then
+        local bot_name
+        bot_name=$(echo "$bot_info" | grep -o '"username":"[^"]*"' | head -1 | cut -d'"' -f4)
+        ok "Bot verified: @${bot_name}"
+    else
+        warn "Could not verify token — continuing anyway"
+    fi
+
+    echo ""
+    info "To find your Telegram user ID:"
+    echo "  1. Open @userinfobot in Telegram"
+    echo "  2. Send /start — it will reply with your ID"
+    echo ""
+    echo "  Enter user IDs that can talk to the bot."
+    echo "  Comma-separated for multiple, or leave blank to allow everyone."
+    echo ""
+
+    ask "Allowed user IDs" ""
+    if [ -n "$REPLY" ]; then
+        # Convert "123,456,789" to ["123","456","789"]
+        TELEGRAM_ALLOW_FROM="[$(echo "$REPLY" | sed 's/[[:space:]]//g; s/,/","/g; s/.*/"&"/')]"
+    else
+        TELEGRAM_ALLOW_FROM="[]"
+        warn "No user filter — anyone can message your bot"
+    fi
+
+    echo ""
+
+    # Disable group pairing — respond immediately
+    info "Bot will respond to direct messages immediately (no pairing required)."
+
+    ok "Telegram configured"
+}
+
 # ── Install PicoClaw binary ─────────────────────────────────────────
 
 install_picoclaw() {
-    # Detect platform
     local os arch
     os="$(uname -s)"
     arch="$(uname -m)"
@@ -216,7 +287,21 @@ write_config() {
       "request_timeout": ${PROVIDER_TIMEOUT}
     }
   ],
-  "channels": {},
+  "channels": {
+    "telegram": {
+      "enabled": ${TELEGRAM_ENABLED},
+      "token": "${TELEGRAM_TOKEN}",
+      "base_url": "",
+      "proxy": "",
+      "allow_from": ${TELEGRAM_ALLOW_FROM},
+      "group_trigger": {
+        "mention_only": true
+      },
+      "typing": {
+        "enabled": true
+      }
+    }
+  },
   "tools": {
     "web": {
       "enabled": false
@@ -262,7 +347,8 @@ ensure_path() {
 # ── Main ────────────────────────────────────────────────────────────
 
 main() {
-    onboard
+    onboard_provider
+    onboard_telegram
     echo ""
     install_picoclaw
     write_config
@@ -272,8 +358,12 @@ main() {
     echo "  ────────────────────────────────────────────"
     ok "Ready!"
     echo ""
-    echo "    picoclaw agent            # interactive chat"
-    echo "    picoclaw agent -m 'hi'    # one-shot"
+    echo "    picoclaw agent            # interactive CLI chat"
+    echo "    picoclaw agent -m 'hi'    # one-shot query"
+    if [ "$TELEGRAM_ENABLED" = "true" ]; then
+        echo ""
+        echo "    picoclaw gateway          # start Telegram bot"
+    fi
     echo ""
     info "Config:  ${PICOCLAW_HOME}/config.json"
     info "Model:   ${PROVIDER_MODEL}"
