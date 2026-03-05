@@ -4,9 +4,9 @@ set -euo pipefail
 # ── NanoModel Installer ──────────────────────────────────────────────
 # Blank-slate installer: sets up everything from scratch.
 #   - Installs Ollama (or verifies existing install is >= 0.6)
-#   - Pulls gemma3:1b model
+#   - Pulls qwen3:0.6b model
 #   - Downloads PicoClaw binary
-#   - Writes config wired to Ollama + gemma3:1b
+#   - Writes config wired to Ollama + qwen3:0.6b
 #
 # Usage:
 #   curl -fsSL <raw-url>/install.sh | bash
@@ -17,7 +17,7 @@ set -euo pipefail
 #   PICOCLAW_HOME    config/workspace directory         (default: ~/.picoclaw)
 # ─────────────────────────────────────────────────────────────────────
 
-MODEL="gemma3:1b"
+MODEL="qwen3:0.6b"
 OLLAMA_MIN_VERSION="0.6.0"
 PICOCLAW_VERSION="v0.2.0"
 PICOCLAW_HOME="${PICOCLAW_HOME:-$HOME/.picoclaw}"
@@ -110,7 +110,7 @@ install_ollama() {
         ver="$(parse_ollama_version)"
 
         if [ -z "$ver" ]; then
-            warn "Could not determine Ollama version — proceeding (gemma3 needs >= ${OLLAMA_MIN_VERSION})"
+            warn "Could not determine Ollama version — proceeding (qwen3 needs >= ${OLLAMA_MIN_VERSION})"
             return
         fi
 
@@ -118,7 +118,7 @@ install_ollama() {
             ok "Ollama ${ver} installed (>= ${OLLAMA_MIN_VERSION} required)"
             return
         else
-            die "Ollama ${ver} is too old. gemma3 requires >= ${OLLAMA_MIN_VERSION}.
+            die "Ollama ${ver} is too old. qwen3 requires >= ${OLLAMA_MIN_VERSION}.
 Please upgrade:
   macOS:   brew upgrade ollama
   Linux:   curl -fsSL https://ollama.com/install.sh | sh"
@@ -149,7 +149,7 @@ or install Homebrew first:  https://brew.sh"
     local ver
     ver="$(parse_ollama_version)"
     if [ -n "$ver" ] && ! version_gte "$ver" "$OLLAMA_MIN_VERSION"; then
-        die "Installed Ollama ${ver} but gemma3 requires >= ${OLLAMA_MIN_VERSION}.
+        die "Installed Ollama ${ver} but qwen3 requires >= ${OLLAMA_MIN_VERSION}.
 Try upgrading or installing from https://ollama.com/download"
     fi
 
@@ -195,12 +195,12 @@ Try running 'ollama serve' manually in another terminal, then re-run this script
 
 pull_model() {
     # Check if model is already pulled
-    if ollama list 2>/dev/null | grep -q "gemma3:1b"; then
+    if ollama list 2>/dev/null | grep -q "qwen3:0.6b"; then
         ok "Model ${MODEL} already downloaded"
         return
     fi
 
-    info "Downloading model ${MODEL} (~815 MB, may take a few minutes)..."
+    info "Downloading model ${MODEL} (~523 MB, may take a few minutes)..."
     ollama pull "$MODEL" || die "Failed to pull model ${MODEL}"
     ok "Model ${MODEL} ready"
 }
@@ -271,7 +271,7 @@ configure_picoclaw() {
     "defaults": {
       "workspace": "~/.picoclaw/workspace",
       "restrict_to_workspace": true,
-      "model_name": "gemma3-1b",
+      "model_name": "qwen3-0.6b",
       "max_tokens": 4096,
       "temperature": 0.7,
       "max_tool_iterations": 15,
@@ -281,8 +281,8 @@ configure_picoclaw() {
   },
   "model_list": [
     {
-      "model_name": "gemma3-1b",
-      "model": "ollama/gemma3:1b",
+      "model_name": "qwen3-0.6b",
+      "model": "ollama/qwen3:0.6b",
       "api_key": "",
       "api_base": "http://localhost:11434/v1"
     }
@@ -357,7 +357,7 @@ main() {
     echo ""
     echo "  ╔══════════════════════════════════════════╗"
     echo "  ║   NanoModel Installer                    ║"
-    echo "  ║   PicoClaw + Gemma 3 1B (via Ollama)     ║"
+    echo "  ║   PicoClaw + Qwen 3 0.6B (via Ollama)    ║"
     echo "  ╚══════════════════════════════════════════╝"
     echo ""
 
