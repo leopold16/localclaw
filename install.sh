@@ -212,6 +212,7 @@ setup_model() {
         cat > "$modelfile" <<'EOF'
 FROM qwen3:0.6b
 PARAMETER num_ctx 2048
+SYSTEM You are a concise assistant. /nothink
 EOF
 
         info "Creating ${MODEL_TAG} (2K context for fast CPU inference)..."
@@ -293,9 +294,9 @@ configure_picoclaw() {
       "workspace": "~/.picoclaw/workspace",
       "restrict_to_workspace": true,
       "model_name": "localclaw",
-      "max_tokens": 4096,
+      "max_tokens": 1024,
       "temperature": 0.7,
-      "max_tool_iterations": 15,
+      "max_tool_iterations": 5,
       "summarize_message_threshold": 20,
       "summarize_token_percent": 75
     }
@@ -312,11 +313,7 @@ configure_picoclaw() {
   "channels": {},
   "tools": {
     "web": {
-      "enabled": true,
-      "duckduckgo": {
-        "enabled": true,
-        "max_results": 5
-      }
+      "enabled": false
     },
     "exec": {
       "enabled": true
@@ -327,13 +324,7 @@ configure_picoclaw() {
     "write_file": {
       "enabled": true
     },
-    "edit_file": {
-      "enabled": true
-    },
     "list_dir": {
-      "enabled": true
-    },
-    "append_file": {
       "enabled": true
     }
   },
