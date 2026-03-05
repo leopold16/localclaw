@@ -246,8 +246,6 @@ install_picoclaw() {
     info "Downloading PicoClaw ${PICOCLAW_VERSION} (${archive})..."
 
     tmpdir="$(mktemp -d)"
-    # Clean up temp dir on exit (append to any existing trap)
-    trap 'rm -rf "$tmpdir"' EXIT
 
     curl -fSL --progress-bar "$url" -o "${tmpdir}/${archive}" \
         || die "Failed to download PicoClaw from ${url}
@@ -270,6 +268,7 @@ Check https://github.com/sipeed/picoclaw/releases for available builds."
     mkdir -p "$INSTALL_DIR"
     mv "${tmpdir}/picoclaw" "${INSTALL_DIR}/picoclaw"
     chmod +x "${INSTALL_DIR}/picoclaw"
+    rm -rf "$tmpdir"
 
     ok "PicoClaw installed to ${INSTALL_DIR}/picoclaw"
 }
