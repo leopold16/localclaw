@@ -4,9 +4,9 @@ set -euo pipefail
 # ── NanoModel Installer ──────────────────────────────────────────────
 # Blank-slate installer: sets up everything from scratch.
 #   - Installs Ollama (or verifies existing install is >= 0.6)
-#   - Pulls qwen3:0.6b model
+#   - Downloads Qwen3-0.6B Q4_0 GGUF (CPU-optimized, 429 MB)
 #   - Downloads PicoClaw binary
-#   - Writes config wired to Ollama + qwen3:0.6b
+#   - Writes config wired to Ollama + qwen3-0.6b-q4
 #
 # Usage:
 #   curl -fsSL <raw-url>/install.sh | bash
@@ -17,7 +17,11 @@ set -euo pipefail
 #   PICOCLAW_HOME    config/workspace directory         (default: ~/.picoclaw)
 # ─────────────────────────────────────────────────────────────────────
 
-MODEL="qwen3:0.6b"
+MODEL_NAME="qwen3-0.6b-q4"
+MODEL_TAG="qwen3-0.6b-q4:latest"
+GGUF_URL="https://huggingface.co/Mungert/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-q4_0.gguf"
+GGUF_FILE="Qwen3-0.6B-q4_0.gguf"
+GGUF_SIZE_MB=429
 OLLAMA_MIN_VERSION="0.6.0"
 PICOCLAW_VERSION="v0.2.0"
 PICOCLAW_HOME="${PICOCLAW_HOME:-$HOME/.picoclaw}"
@@ -110,7 +114,7 @@ install_ollama() {
         ver="$(parse_ollama_version)"
 
         if [ -z "$ver" ]; then
-            warn "Could not determine Ollama version — proceeding (qwen3 needs >= ${OLLAMA_MIN_VERSION})"
+            warn "Could not determine Ollama version — proceeding (model needs >= ${OLLAMA_MIN_VERSION})"
             return
         fi
 
@@ -118,7 +122,7 @@ install_ollama() {
             ok "Ollama ${ver} installed (>= ${OLLAMA_MIN_VERSION} required)"
             return
         else
-            die "Ollama ${ver} is too old. qwen3 requires >= ${OLLAMA_MIN_VERSION}.
+            die "Ollama ${ver} is too old. model requires >= ${OLLAMA_MIN_VERSION}.
 Please upgrade:
   macOS:   brew upgrade ollama
   Linux:   curl -fsSL https://ollama.com/install.sh | sh"
@@ -149,7 +153,7 @@ or install Homebrew first:  https://brew.sh"
     local ver
     ver="$(parse_ollama_version)"
     if [ -n "$ver" ] && ! version_gte "$ver" "$OLLAMA_MIN_VERSION"; then
-        die "Installed Ollama ${ver} but qwen3 requires >= ${OLLAMA_MIN_VERSION}.
+        die "Installed Ollama ${ver} but model requires >= ${OLLAMA_MIN_VERSION}.
 Try upgrading or installing from https://ollama.com/download"
     fi
 
@@ -191,23 +195,61 @@ Try running 'ollama serve' manually in another terminal, then re-run this script
     ok "Ollama server is running"
 }
 
-# ── Pull model ───────────────────────────────────────────────────────
+# ── Download GGUF & create Ollama model ─────────────────────────────
 
-pull_model() {
-    # Check if model is already pulled
-    if ollama list 2>/dev/null | grep -q "qwen3:0.6b"; then
-        ok "Model ${MODEL} already downloaded"
-        return
+setup_model() {
+    # Check if model is already registered in Ollama
+    if ollama list 2>/dev/null | grep -q "${MODEL_NAME}"; then
+        ok "Model ${MODEL_TAG} already set up"
+    else
+        local model_dir="${PICOCLAW_HOME}/models"
+        mkdir -p "$model_dir"
+
+        # Download GGUF from HuggingFace
+        if [ -f "${model_dir}/${GGUF_FILE}" ]; then
+            ok "GGUF already downloaded"
+        else
+            info "Downloading ${GGUF_FILE} (~${GGUF_SIZE_MB} MB) from HuggingFace..."
+            curl -fSL --progress-bar "$GGUF_URL" -o "${model_dir}/${GGUF_FILE}" \
+                || die "Failed to download GGUF from ${GGUF_URL}"
+            ok "GGUF downloaded"
+        fi
+
+        # Create Ollama Modelfile
+        local modelfile="${model_dir}/Modelfile"
+        cat > "$modelfile" <<EOF
+FROM ${model_dir}/${GGUF_FILE}
+
+PARAMETER num_ctx 2048
+PARAMETER temperature 0.7
+
+TEMPLATE """{{- range \$i, \$_ := .Messages }}
+{{- if eq .Role "system" }}<|im_start|>system
+{{ .Content }}<|im_end|>
+{{ end }}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ end }}
+{{- if eq .Role "assistant" }}<|im_start|>assistant
+{{ .Content }}<|im_end|>
+{{ end }}
+{{- end }}<|im_start|>assistant
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+EOF
+
+        info "Creating Ollama model ${MODEL_TAG}..."
+        ollama create "$MODEL_TAG" -f "$modelfile" \
+            || die "Failed to create Ollama model from GGUF"
+        ok "Model ${MODEL_TAG} created"
     fi
-
-    info "Downloading model ${MODEL} (~523 MB, may take a few minutes)..."
-    ollama pull "$MODEL" || die "Failed to pull model ${MODEL}"
-    ok "Model ${MODEL} downloaded"
 
     # Pre-warm: load model into memory so first request isn't a cold start
     info "Warming up model (loading into memory)..."
-    ollama run "$MODEL" "hi" --nowordwrap >/dev/null 2>&1 || true
-    ok "Model ${MODEL} ready"
+    ollama run "$MODEL_TAG" "hi" --nowordwrap >/dev/null 2>&1 || true
+    ok "Model ${MODEL_TAG} ready"
 }
 
 # ── PicoClaw binary ─────────────────────────────────────────────────
@@ -276,7 +318,7 @@ configure_picoclaw() {
     "defaults": {
       "workspace": "~/.picoclaw/workspace",
       "restrict_to_workspace": true,
-      "model_name": "qwen3-0.6b",
+      "model_name": "qwen3-0.6b-q4",
       "max_tokens": 4096,
       "temperature": 0.7,
       "max_tool_iterations": 15,
@@ -286,8 +328,8 @@ configure_picoclaw() {
   },
   "model_list": [
     {
-      "model_name": "qwen3-0.6b",
-      "model": "ollama/qwen3:0.6b",
+      "model_name": "qwen3-0.6b-q4",
+      "model": "ollama/qwen3-0.6b-q4",
       "api_key": "",
       "api_base": "http://localhost:11434/v1",
       "request_timeout": 300
@@ -363,7 +405,7 @@ main() {
     echo ""
     echo "  ╔══════════════════════════════════════════╗"
     echo "  ║   NanoModel Installer                    ║"
-    echo "  ║   PicoClaw + Qwen 3 0.6B (via Ollama)    ║"
+    echo "  ║   PicoClaw + Qwen3 0.6B Q4 (CPU, Ollama) ║"
     echo "  ╚══════════════════════════════════════════╝"
     echo ""
 
@@ -377,7 +419,7 @@ main() {
     echo ""
 
     info "Step 2/4 — Model"
-    pull_model
+    setup_model
     echo ""
 
     info "Step 3/4 — PicoClaw"
@@ -397,7 +439,7 @@ main() {
     echo "    picoclaw agent -m 'hi'    # one-shot query"
     echo ""
     info "Config:    ${PICOCLAW_HOME}/config.json"
-    info "Model:     ${MODEL} (Ollama @ localhost:11434)"
+    info "Model:     ${MODEL_TAG} (Ollama @ localhost:11434)"
     info "Workspace: ${PICOCLAW_HOME}/workspace"
     echo ""
 }
