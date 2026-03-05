@@ -202,6 +202,11 @@ pull_model() {
 
     info "Downloading model ${MODEL} (~523 MB, may take a few minutes)..."
     ollama pull "$MODEL" || die "Failed to pull model ${MODEL}"
+    ok "Model ${MODEL} downloaded"
+
+    # Pre-warm: load model into memory so first request isn't a cold start
+    info "Warming up model (loading into memory)..."
+    ollama run "$MODEL" "hi" --nowordwrap >/dev/null 2>&1 || true
     ok "Model ${MODEL} ready"
 }
 
@@ -284,7 +289,8 @@ configure_picoclaw() {
       "model_name": "qwen3-0.6b",
       "model": "ollama/qwen3:0.6b",
       "api_key": "",
-      "api_base": "http://localhost:11434/v1"
+      "api_base": "http://localhost:11434/v1",
+      "request_timeout": 300
     }
   ],
   "channels": {},
