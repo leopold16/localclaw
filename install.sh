@@ -4,9 +4,9 @@ set -euo pipefail
 # ── NanoModel Installer ──────────────────────────────────────────────
 # Blank-slate installer: sets up everything from scratch.
 #   - Installs Ollama (or verifies existing install is >= 0.6)
-#   - Downloads Qwen3-0.6B Q4_0 GGUF (CPU-optimized, 429 MB)
+#   - Pulls qwen3:0.6b + creates fast 2K-context variant with tool calling
 #   - Downloads PicoClaw binary
-#   - Writes config wired to Ollama + qwen3-0.6b-q4
+#   - Writes config wired to Ollama + localclaw model
 #
 # Usage:
 #   curl -fsSL <raw-url>/install.sh | bash
@@ -17,11 +17,9 @@ set -euo pipefail
 #   PICOCLAW_HOME    config/workspace directory         (default: ~/.picoclaw)
 # ─────────────────────────────────────────────────────────────────────
 
-MODEL_NAME="qwen3-0.6b-q4"
-MODEL_TAG="qwen3-0.6b-q4:latest"
-GGUF_URL="https://huggingface.co/Mungert/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-q4_0.gguf"
-GGUF_FILE="Qwen3-0.6B-q4_0.gguf"
-GGUF_SIZE_MB=429
+MODEL_BASE="qwen3:0.6b"
+MODEL_NAME="localclaw"
+MODEL_TAG="localclaw:latest"
 OLLAMA_MIN_VERSION="0.6.0"
 PICOCLAW_VERSION="v0.2.0"
 PICOCLAW_HOME="${PICOCLAW_HOME:-$HOME/.picoclaw}"
@@ -195,54 +193,31 @@ Try running 'ollama serve' manually in another terminal, then re-run this script
     ok "Ollama server is running"
 }
 
-# ── Download GGUF & create Ollama model ─────────────────────────────
+# ── Pull base model & create fast variant ───────────────────────────
 
 setup_model() {
-    # Check if model is already registered in Ollama
+    # Check if our custom model already exists
     if ollama list 2>/dev/null | grep -q "${MODEL_NAME}"; then
         ok "Model ${MODEL_TAG} already set up"
     else
-        local model_dir="${PICOCLAW_HOME}/models"
-        mkdir -p "$model_dir"
+        # Pull the official model (includes full tool-calling template)
+        info "Pulling ${MODEL_BASE} from Ollama (~523 MB)..."
+        ollama pull "$MODEL_BASE" || die "Failed to pull ${MODEL_BASE}"
+        ok "${MODEL_BASE} downloaded"
 
-        # Download GGUF from HuggingFace
-        if [ -f "${model_dir}/${GGUF_FILE}" ]; then
-            ok "GGUF already downloaded"
-        else
-            info "Downloading ${GGUF_FILE} (~${GGUF_SIZE_MB} MB) from HuggingFace..."
-            curl -fSL --progress-bar "$GGUF_URL" -o "${model_dir}/${GGUF_FILE}" \
-                || die "Failed to download GGUF from ${GGUF_URL}"
-            ok "GGUF downloaded"
-        fi
-
-        # Create Ollama Modelfile
-        local modelfile="${model_dir}/Modelfile"
-        cat > "$modelfile" <<EOF
-FROM ${model_dir}/${GGUF_FILE}
-
+        # Create a thin variant with reduced context for CPU speed
+        # Inherits everything from the base (template, tools, stop tokens)
+        local modelfile
+        modelfile="$(mktemp)"
+        cat > "$modelfile" <<'EOF'
+FROM qwen3:0.6b
 PARAMETER num_ctx 2048
-PARAMETER temperature 0.7
-
-TEMPLATE """{{- range \$i, \$_ := .Messages }}
-{{- if eq .Role "system" }}<|im_start|>system
-{{ .Content }}<|im_end|>
-{{ end }}
-{{- if eq .Role "user" }}<|im_start|>user
-{{ .Content }}<|im_end|>
-{{ end }}
-{{- if eq .Role "assistant" }}<|im_start|>assistant
-{{ .Content }}<|im_end|>
-{{ end }}
-{{- end }}<|im_start|>assistant
-"""
-
-PARAMETER stop "<|im_end|>"
-PARAMETER stop "<|endoftext|>"
 EOF
 
-        info "Creating Ollama model ${MODEL_TAG}..."
+        info "Creating ${MODEL_TAG} (2K context for fast CPU inference)..."
         ollama create "$MODEL_TAG" -f "$modelfile" \
-            || die "Failed to create Ollama model from GGUF"
+            || die "Failed to create model ${MODEL_TAG}"
+        rm -f "$modelfile"
         ok "Model ${MODEL_TAG} created"
     fi
 
@@ -318,7 +293,7 @@ configure_picoclaw() {
     "defaults": {
       "workspace": "~/.picoclaw/workspace",
       "restrict_to_workspace": true,
-      "model_name": "qwen3-0.6b-q4",
+      "model_name": "localclaw",
       "max_tokens": 4096,
       "temperature": 0.7,
       "max_tool_iterations": 15,
@@ -328,8 +303,8 @@ configure_picoclaw() {
   },
   "model_list": [
     {
-      "model_name": "qwen3-0.6b-q4",
-      "model": "ollama/qwen3-0.6b-q4",
+      "model_name": "localclaw",
+      "model": "ollama/localclaw",
       "api_key": "",
       "api_base": "http://localhost:11434/v1",
       "request_timeout": 300
@@ -405,7 +380,7 @@ main() {
     echo ""
     echo "  ╔══════════════════════════════════════════╗"
     echo "  ║   NanoModel Installer                    ║"
-    echo "  ║   PicoClaw + Qwen3 0.6B Q4 (CPU, Ollama) ║"
+    echo "  ║   PicoClaw + Qwen3 0.6B (CPU, Ollama)    ║"
     echo "  ╚══════════════════════════════════════════╝"
     echo ""
 

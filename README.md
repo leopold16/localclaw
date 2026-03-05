@@ -1,6 +1,6 @@
 # localclaw
 
-One-command install of [PicoClaw](https://github.com/sipeed/picoclaw) + [Qwen3 0.6B](https://huggingface.co/Mungert/Qwen3-0.6B-GGUF) running locally via Ollama. CPU-optimized Q4_0 quantization (~429 MB), supports tool calling.
+One-command install of [PicoClaw](https://github.com/sipeed/picoclaw) + [Qwen3 0.6B](https://ollama.com/library/qwen3:0.6b) running locally via Ollama. Supports tool calling, optimized for CPU with 2K context window.
 
 ## Install
 
@@ -17,10 +17,9 @@ git clone https://github.com/leopold16/localclaw.git && bash localclaw/install.s
 ## What it does
 
 1. Installs [Ollama](https://ollama.com) (or checks existing >= 0.6)
-2. Downloads [Qwen3-0.6B Q4_0 GGUF](https://huggingface.co/Mungert/Qwen3-0.6B-GGUF) (~429 MB, CPU-optimized)
-3. Creates a custom Ollama model with 2K context for fast inference
-4. Downloads [PicoClaw](https://github.com/sipeed/picoclaw) binary
-5. Wires config to use the local model
+2. Pulls `qwen3:0.6b` and creates a `localclaw` model variant (2K context for fast CPU inference)
+3. Downloads [PicoClaw](https://github.com/sipeed/picoclaw) binary
+4. Wires config to the local model
 
 ## Usage
 
@@ -34,8 +33,8 @@ Config lives at `~/.picoclaw/config.json`.
 ## EC2 quickstart
 
 ```bash
-# Ubuntu, t3.medium or larger
-ssh ec2-user@<ip>
+# Ubuntu, t3.medium (4 GB RAM), 16 GB EBS
+ssh ubuntu@<ip>
 curl -fsSL https://raw.githubusercontent.com/leopold16/localclaw/main/install.sh | bash
 source ~/.bashrc
 picoclaw agent
